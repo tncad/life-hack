@@ -1,0 +1,6 @@
+scalaVersion := "2.12.10"
+name := "my-spark-app"
+organization := "ch.epfl.scala"
+version := "1.0"
+libraryDependencies += "org.typelevel" %% "cats-core" % "2.0.0"
+libraryDependencies += "org.apache.spark" %% "spark-sql" % "3.0.0"
