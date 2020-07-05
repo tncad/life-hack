@@ -156,6 +156,10 @@ dfCumulwin.createOrReplaceTempView("cumulwin")
 // dfCumulwin.groupBy("_ref").max("tot_m","tot_s").show()
 
 
+// write dataframe to file
+dfCumulwin.write.parquet("data/dfCumulwin.parquet")
+
+
 // Mark "cumultot" for deletion
 dfCumultot.unpersist() // specify "blocking = true" to block until done
 
