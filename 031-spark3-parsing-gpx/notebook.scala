@@ -1,5 +1,15 @@
+//imports
+import org.apache.log4j._
+import org.apache.spark.sql.DataFrame
+import java.io.File
+
+
+// remove warnings
+Logger.getLogger("org").setLevel(Level.ERROR)
+
+
 // Function "fcReadGpx" reads an input GPX and returns a Dataframe
-def fcReadGpx(file: java.io.File): org.apache.spark.sql.DataFrame = {
+def fcReadGpx(file: File): DataFrame = {
     spark.read.
     format("com.databricks.spark.xml").
     option("rootTag", "gpx.trk.trkseg").
@@ -20,7 +30,7 @@ def fcReadGpx(file: java.io.File): org.apache.spark.sql.DataFrame = {
 
 
 // Function "fcIngestAll" recursively collects activity Dataframes
-def fcIngestAll(files: List[java.io.File], seq: Seq[org.apache.spark.sql.DataFrame]): Seq[org.apache.spark.sql.DataFrame] = {
+def fcIngestAll(files: List[File], seq: Seq[DataFrame]): Seq[DataFrame] = {
     if (0 == files.size)
       seq
     else
@@ -31,7 +41,7 @@ def fcIngestAll(files: List[java.io.File], seq: Seq[org.apache.spark.sql.DataFra
 // Table "trackingpoints" contains all GPX raw data
 val dfTrackingpoints = fcIngestAll(
   // list GPX files from data directory
-  new java.io.File("data").listFiles.filter(_.getName.endsWith(".gpx")).toList,
+  new File("data").listFiles.filter(_.getName.endsWith(".gpx")).toList,
   Nil
 ).reduce(_ union _)
 //dfTrackingpoints.show()
