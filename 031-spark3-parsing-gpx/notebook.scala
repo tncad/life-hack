@@ -1,11 +1,10 @@
 //imports
-import org.apache.log4j._
 import org.apache.spark.sql.DataFrame
 import java.io.File
 
 
 // remove warnings
-Logger.getLogger("org").setLevel(Level.ERROR)
+sc.setLogLevel("ERROR")
 
 
 // Function "fcReadGpx" reads an input GPX and returns a Dataframe
@@ -22,7 +21,7 @@ def fcReadGpx(file: File): DataFrame = {
     withColumn(
       "tot_s",row_number().over(
         org.apache.spark.sql.expressions.Window.
-        partitionBy(col("_ref")).
+        partitionBy($"_ref").
         orderBy(monotonically_increasing_id()
       )
     )-1)
@@ -86,8 +85,8 @@ val dfDistances = spark.sql(
   "    AND TP1._ref = TP2._ref "
 ).withColumn(
   "dist_m", udfCalcDist(
-    col("lat1"), col("lon1"),
-    col("lat2"), col("lon2")
+    $"lat1", $"lon1",
+    $"lat2", $"lon2"
   )
 ).select("_ref","tot_s","dist_m").orderBy("_ref","tot_s")
 dfDistances.createOrReplaceTempView("distances")
@@ -117,25 +116,52 @@ val dfCumultot = spark.sql(
   "        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW" +
   "    ) tot_m " +
   " FROM distances "
+).withColumn(
+  "pace_m_s",
+  $"tot_m"/$"tot_s"
 ).orderBy(
   "_ref","tot_s"
 )
 dfCumultot.createOrReplaceTempView("cumultot")
 
-
 // //debug
 // println("DEBUG: dfCumultot")
 // dfCumultot.show()
-dfCumultot.groupBy("_ref").max("tot_s","tot_m").show()
-// dfCumultot.groupBy("_ref").sum("dist_m").show()
 
 
 // Mark "distances" for deletion
 dfDistances.unpersist() // specify "blocking = true" to block until done
 
 
+// Table "preagg" contains time, distance, and mean pace per activity
+val dfPreAgg = dfCumultot.groupBy(
+  "_ref"
+).max(
+  "tot_s","tot_m"
+).withColumn(
+  "mean_m_s",
+  $"max(tot_m)"/$"max(tot_s)"
+).withColumn(
+  "dummy",
+  lit(0)
+)
+dfPreAgg.show()
+// fine tune bandwidth
+val mean_m_s = 0.15 + dfPreAgg.groupBy(
+  "dummy"
+).avg(
+  "mean_m_s"
+).select(
+  "avg(mean_m_s)"
+).as[Double].collectAsList.get(0)
+
+
+// Mark "preagg" for deletion
+dfPreAgg.unpersist() // specify "blocking = true" to block until done
+
+
 // Table "cumulwin" contains cumulative distance by pace aggregation window
-val pace_agg_window = 5 // we want to calculate avg pace on n data points
+val pace_agg_window = 3 // we want to calculate avg pace on n data points
 val dfCumulwin = spark.sql(
   " SELECT _ref, tot_s, " +
   "    SUM(dist_m) OVER(" +
@@ -156,42 +182,23 @@ dfCumulwin.createOrReplaceTempView("cumulwin")
 // dfCumulwin.groupBy("_ref").max("tot_m","tot_s").show()
 
 
-// write dataframe to file
-dfCumulwin.write.parquet("data/dfCumulwin.parquet")
-
-
 // Mark "cumultot" for deletion
 dfCumultot.unpersist() // specify "blocking = true" to block until done
 
 
-// Function "fcCalcPace" calculates running pace in min per km
-def fcCalcPace(dMeter: Double, nSec: Int): String = {
-  val secPerKm = nSec * 1000/(dMeter + 0.001) // +1mm to prevent division by zero
-  ("" +
-    (secPerKm / 60).toInt + ":" +
-    (if (secPerKm % 60 < 10) "0" else "") + (secPerKm % 60).toInt
-  )
-}
-val udfCalcPace = udf(fcCalcPace _)
-
-
-// Table "fastpace" contains running pace and category "in" or "out"
-val fast_split_m = (1000*pace_agg_window:Double) / 270    // catagorize splits above/below 4:30 or 270 sec/km
+// Table "classification" contains running pace and category
+val fast_split_m = (mean_m_s * pace_agg_window):Double
 val dfClassification = spark.sql(
   " SELECT CW1._ref, " +
   "     CW2.tot_s AS tot_s, CW2.tot_m AS tot_m, " +
   "     CW2.tot_m - CW1.tot_m AS win_m, " +
   "     CASE WHEN (" +
   "       (CW2.tot_m - CW1.tot_m) > " + fast_split_m + ") " +
-  "     THEN 'I' ELSE 'O' " +
+  "     THEN '1' ELSE '0' " +
   "     END AS cat " +
   " FROM cumulwin CW1 INNER JOIN cumulwin CW2 " +
   "    ON CW1._ref = CW2._ref " +
   "    AND CW1.tot_s + " + (pace_agg_window) + " = CW2.tot_s "
-).withColumn(
-  "pace_min_km", udfCalcPace(
-    col("win_m"), lit(pace_agg_window)
-  )
 ).orderBy("_ref", "tot_s")
 dfClassification.createOrReplaceTempView("classification")
 
@@ -206,18 +213,60 @@ dfClassification.show()
 dfCumulwin.unpersist() // specify "blocking = true" to block until done
 
 
+// Function "fcCalcPace" calculates running pace in min per km
+def fcSetCat2(weight: Int): Int = {
+  if (weight > 3) 1 else 0
+}
+val udfSetCat2 = udf(fcSetCat2 _)
+
+
+// Table "classification2" contains 2nd category pass
+val dfClassification2 = spark.sql(
+  " SELECT *, " +
+  "    SUM(cat) OVER(" +
+  "        PARTITION BY _ref " +
+  "        ORDER BY tot_s " +
+  "        ROWS BETWEEN 6 PRECEDING AND CURRENT ROW" +
+  "    ) weight " +
+  " FROM classification "
+).withColumn(
+  "cat2", udfSetCat2($"weight")
+).orderBy("_ref", "tot_s")
+dfClassification2.createOrReplaceTempView("classification2")
+
+// //debug
+// println("DEBUG: dfClassification2")
+dfClassification2.show()
+
+
+// write dataframe to disk
+//TODO: Try(scalax.file.Path ("data/classification2.parquet").deleteRecursively(continueOnFailure = false))
+dfCumulwin.write.parquet("data/classification2.parquet")
+
+
+// Function "fcCalcPace" calculates running pace in min per km
+def fcCalcPace(dMeter: Double, nSec: Int): String = {
+  val secPerKm = nSec * 1000/(dMeter + 0.001) // +1mm to prevent division by zero
+  ("" +
+    (secPerKm / 60).toInt + ":" +
+    (if (secPerKm % 60 < 10) "0" else "") + (secPerKm % 60).toInt
+  )
+}
+val udfCalcPace = udf(fcCalcPace _)
+
+
 // Training report by category (int/out)
 val dfResult = spark.sql(
-  " SELECT _ref, cat, " +
+  " SELECT _ref, cat2, " +
   "   ROUND(SUM(win_m), 2) AS dist_m, " +
   "   (COUNT(win_m) * " + pace_agg_window + ") AS time_s " +
-  " FROM classification " +
-  " GROUP BY _ref, cat "
+  " FROM classification2 " +
+  " GROUP BY _ref, cat2 "
 ).withColumn(
   "pace_min_km", udfCalcPace(
-     col("dist_m"), col("time_s")
+     $"dist_m", $"time_s"
   )
-).orderBy("_ref", "cat")
+).orderBy("_ref", "cat2")
 
 // //debug
 // println("DEBUG: dfResult")
