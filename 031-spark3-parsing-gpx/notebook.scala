@@ -116,7 +116,7 @@ dfCumultot.createOrReplaceTempView("cumultot")
 // //debug
 // println("DEBUG: dfCumultot")
 // dfCumultot.show()
-// dfCumultot.groupBy("_ref").max("tot_s","tot_m").show()
+dfCumultot.groupBy("_ref").max("tot_s","tot_m").show()
 // dfCumultot.groupBy("_ref").sum("dist_m").show()
 
 
@@ -125,7 +125,7 @@ dfDistances.unpersist() // specify "blocking = true" to block until done
 
 
 // Table "cumulwin" contains cumulative distance by pace aggregation window
-val pace_agg_window = 3 // we want to calculate avg pace on n data points
+val pace_agg_window = 5 // we want to calculate avg pace on n data points
 val dfCumulwin = spark.sql(
   " SELECT _ref, tot_s, " +
   "    SUM(dist_m) OVER(" +
@@ -162,7 +162,7 @@ val udfCalcPace = udf(fcCalcPace _)
 
 
 // Table "fastpace" contains running pace and category "in" or "out"
-val fast_split_m = 1000*pace_agg_window/251  // catagorize splits above/below 4:11 or 251 sec/km
+val fast_split_m = (1000*pace_agg_window:Double) / 270    // catagorize splits above/below 4:30 or 270 sec/km
 val dfClassification = spark.sql(
   " SELECT CW1._ref, " +
   "     CW2.tot_s AS tot_s, CW2.tot_m AS tot_m, " +
@@ -183,7 +183,7 @@ dfClassification.createOrReplaceTempView("classification")
 
 // //debug
 // println("DEBUG: dfClassification")
-//dfClassification.show()
+dfClassification.show()
 // dfClassification.groupBy("_ref").sum("win_m").show()
 // dfClassification.groupBy("_ref").max("tot_m","tot_s").show()
 
@@ -196,7 +196,7 @@ dfCumulwin.unpersist() // specify "blocking = true" to block until done
 val dfResult = spark.sql(
   " SELECT _ref, cat, " +
   "   ROUND(SUM(win_m), 2) AS dist_m, " +
-  "   COUNT(win_m) * " + pace_agg_window + " AS time_s " +
+  "   (COUNT(win_m) * " + pace_agg_window + ") AS time_s " +
   " FROM classification " +
   " GROUP BY _ref, cat "
 ).withColumn(
@@ -208,4 +208,4 @@ val dfResult = spark.sql(
 // //debug
 // println("DEBUG: dfResult")
 dfResult.show()
-// dfResult.groupBy("_ref").sum("dist_m", "time_s").show()
+//dfResult.groupBy("_ref").sum("dist_m", "time_s").show()
