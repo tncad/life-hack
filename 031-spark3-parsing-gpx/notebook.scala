@@ -40,10 +40,19 @@ def fcIngestAll(files: List[File], seq: Seq[DataFrame]): Seq[DataFrame] = {
 // Table "trackingpoints" contains all GPX raw data
 val dfTrackingpoints = fcIngestAll(
   // list GPX files from data directory
-  new File("data_in").listFiles.filter(_.getName.endsWith(".gpx")).toList,
+  new File("data/1_transient").listFiles.filter(_.getName.endsWith(".gpx")).toList,
   Nil
 ).reduce(_ union _)
 dfTrackingpoints.createOrReplaceTempView("trackingpoints")
+
+
+// persist to raw zone
+var out = new File("data/2_raw/gpx.parquet")
+if (out.exists && out.isDirectory) {
+  for (f <- out.listFiles.toList ) { f.delete }
+  out.delete
+}
+dfTrackingpoints.write.parquet("data/2_raw/gpx.parquet")
 
 
 // output tracking point count by activity
@@ -213,13 +222,13 @@ dfClassification2.createOrReplaceTempView("classification2")
 dfClassification2.show()
 
 
-// write dataframe to disk
-val out_dir = new File("data_out/gpxres.parquet")
-if (out_dir.exists && out_dir.isDirectory) {
-  for (f <- out_dir.listFiles.toList ) { f.delete }
-  out_dir.delete
+// persist to trusted zone
+out = new File("data/3_trusted/gpx.parquet")
+if (out.exists && out.isDirectory) {
+  for (f <- out.listFiles.toList ) { f.delete }
+  out.delete
 }
-dfCumulwin.write.parquet("data_out/gpxres.parquet")
+dfCumulwin.write.parquet("data/3_trusted/gpx.parquet")
 
 
 // Function "fcCalcPace" calculates running pace in min per km
@@ -249,3 +258,11 @@ val dfResult = spark.sql(
 
 // INFO
 dfResult.show()
+
+
+// persist to refined zone
+out = new File("data/4_refined/gpx.csv")
+if (out.exists) {
+  out.delete
+}
+dfResult.write.csv("data/4_refined/gpx.csv")
