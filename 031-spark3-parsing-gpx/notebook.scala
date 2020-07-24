@@ -262,7 +262,8 @@ dfResult.show()
 
 // persist to refined zone
 out = new File("data/4_refined/gpx.csv")
-if (out.exists) {
+if (out.exists && out.isDirectory) {
+  for (f <- out.listFiles.toList ) { f.delete }
   out.delete
 }
 dfResult.write.csv("data/4_refined/gpx.csv")
