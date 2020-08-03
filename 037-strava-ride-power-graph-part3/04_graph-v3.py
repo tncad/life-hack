@@ -51,34 +51,21 @@ ax = sns.boxplot(x='avg_grade',y='avg_power',data=df.round({'avg_grade': 0}))
 ax.set_xticklabels(ax.get_xticklabels(),rotation=90)
 plt.show()
 
-# split dataset in 2 categories of effort duration
+#
+# Distribution analysis (by category of effort)
+#
+
 import datetime
-df_anaerobic = df[(df.duration < datetime.timedelta(minutes=2))]
-df_aerobic = df[(df.duration >= datetime.timedelta(minutes=2))]
-print(df_aerobic.head())
+df['category'] = ["anaerobic" if d < datetime.timedelta(minutes=2) else "aerobic" for d in df['duration']]
 
-#
-# Distribution analysis (by category)
-#
-
-fig,a = plt.subplots(2)
-fig.suptitle('Distribution analysis (by category)', fontsize=12)
-
-a[0].set_title("Anaerobic efforts", fontsize=10)
-a[0].set_ylim(min_power, max_power)
-ax = sns.boxplot(x='avg_grade', y='avg_power', data=df_anaerobic.round({'avg_grade': 0}), ax=a[0])
+plt.title("Distribution analysis (by category of effort)")
+plt.xlabel(x_label)
+plt.ylabel(y_label)
+plt.xlim(min_grade, max_grade)
+plt.ylim(min_power, max_power)
+ax = sns.boxplot(x='avg_grade',y='avg_power',data=df.round({'avg_grade': 0}), hue='category')
 ax.set_xticklabels(ax.get_xticklabels(),rotation=90)
-
-a[1].set_title("Aerobic efforts", fontsize=10)
-a[1].set_ylim(min_power, max_power)
-ax = sns.boxplot(x='avg_grade', y='avg_power', data=df_aerobic.round({'avg_grade': 0}), ax=a[1])
-ax.set_xticklabels(ax.get_xticklabels(),rotation=90)
-
 plt.show()
-
-# keep best perf in case different exist for same seg or avg_grade
-df_anaerobic = df_anaerobic.groupby(['avg_grade'])['avg_power'].agg('max').reset_index()
-df_aerobic = df_aerobic.groupby(['avg_grade'])['avg_power'].agg('max').reset_index()
 
 #
 # Linear fitting
@@ -91,8 +78,8 @@ fig,a = plt.subplots(2)
 fig.suptitle('Linear fitting', fontsize=12)
 
 # anaerobic: reference data
-df_x_np = df_anaerobic['avg_grade'].to_numpy()
-df_y_np = df_anaerobic['avg_power'].to_numpy()
+df_x_np = df[(df.category == 'anaerobic')]['avg_grade'].to_numpy()
+df_y_np = df[(df.category == 'anaerobic')]['avg_power'].to_numpy()
 a[0].scatter(df_x_np, df_y_np, color='lightgrey')
 a[0].set_title("Anaerobic efforts", fontsize=10)
 a[0].legend()
@@ -109,8 +96,8 @@ for degree in range(1, 4, 1):
 a[0].legend()
 
 # aerobic: reference data
-df_x_np = df_aerobic['avg_grade'].to_numpy()
-df_y_np = df_aerobic['avg_power'].to_numpy()
+df_x_np = df[(df.category == 'aerobic')]['avg_grade'].to_numpy()
+df_y_np = df[(df.category == 'aerobic')]['avg_power'].to_numpy()
 a[1].scatter(df_x_np, df_y_np, color='lightgrey')
 a[1].set_title("Aerobic efforts", fontsize=10)
 a[1].set_xlabel(x_label)
@@ -135,6 +122,9 @@ plt.show()
 
 from scipy.optimize import curve_fit
 
+# keep best perf in case different exist for same seg or avg_grade
+df = df.groupby(['category', 'avg_grade'])['avg_power'].agg('max').reset_index()
+
 # generic logistic function as per https://stackoverflow.com/questions/60160803/scipy-optimize-curve-fit-for-logistic-function
 def logifunc(x, A, x0, k, off):
     return A / (1 + np.exp( -k * (x - x0) ) ) + off
@@ -144,8 +134,8 @@ fig,a = plt.subplots(2)
 fig.suptitle('Non-linear fitting', fontsize=12)
 
 # anaerobic: reference data
-df_x_np = df_anaerobic['avg_grade'].to_numpy()
-df_y_np = df_anaerobic['avg_power'].to_numpy()
+df_x_np = df[(df.category == 'anaerobic')]['avg_grade'].to_numpy()
+df_y_np = df[(df.category == 'anaerobic')]['avg_power'].to_numpy()
 a[0].scatter(df_x_np, df_y_np, color='lightgrey')
 a[0].set_title("Anaerobic efforts", fontsize=10)
 a[0].set_ylabel(y_label)
@@ -164,10 +154,10 @@ a[0].plot(x_data, logifunc(x_data, *popt), 'r-', label='logistic')
 a[0].legend()
 
 # aerobic: reference data
-df_x_np = df_aerobic['avg_grade'].to_numpy()
-df_y_np = df_aerobic['avg_power'].to_numpy()
+df_x_np = df[(df.category == 'aerobic')]['avg_grade'].to_numpy()
+df_y_np = df[(df.category == 'aerobic')]['avg_power'].to_numpy()
 a[1].scatter(df_x_np, df_y_np, color='lightgrey')
-a[0].set_title("Aerobic efforts", fontsize=10)
+a[1].set_title("Aerobic efforts", fontsize=10)
 a[1].set_xlabel(x_label)
 a[1].set_ylabel(y_label)
 a[1].set_xlim(min_grade, max_grade)
