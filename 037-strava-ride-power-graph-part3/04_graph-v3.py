@@ -1,65 +1,188 @@
-# global params
-min_grade = -4
-max_grade = 20
+#
+# Initialisation
+#
+
+# presets
+pkl_path = "./"
+min_grade = -5
+max_grade = 25
 x_label = "Grade (%)"
 y_label = "Power (W)"
-pkl_file = "./efforts.pkl"
+df = None
 
-# read and filter previously serialized data
+# fetch and read all pkl files
 import pandas as pd
-df = pd.read_pickle(pkl_file)[['avg_grade','avg_power']]
-df1 = df[(df.avg_grade > min_grade) & (df.avg_grade < max_grade)]
-df2 = df1.groupby(['avg_grade'])['avg_power'].agg('max').reset_index()
+from os import listdir
+from os.path import isfile, join
+for pkl_file in listdir(pkl_path):
+  if isfile(join(pkl_path, pkl_file)) & pkl_file.endswith(".pkl"):
+    print(pkl_file)
+    if df is None:
+      df = pd.read_pickle(pkl_file) 
+    else: 
+      df = pd.concat([df, pd.read_pickle(pkl_file)])
 
-# create figure
-import matplotlib.pyplot as plt
-fig,a = plt.subplots(2)
-fig.suptitle('Strava segment power analysis', fontsize=12)
+# restrict observation to domain of interest
+df = df[(df.avg_grade > min_grade) & (df.avg_grade < max_grade)] # excluding wrong segment grade of 30%
+df = df[(df.avg_grade < 7) | (df.avg_power > 100)] # excluding irrelevant effort of 50W / 8%
 
-# basic plots
-#a[0].set_title("Raw data", fontsize=10)
-#a[0].plot(df1['avg_grade'], df1['avg_power'],"b.")
+# use same value range for all diagrams
+min_grade = df['avg_grade'].min()
+max_grade = df['avg_grade'].max()
+min_power = df['avg_power'].min()
+max_power = df['avg_power'].max()
 
-# lazy analysis
-import seaborn as sns
-a[0].set_title("Boxplot distribution", fontsize=10)
-#ax = sns.boxplot(x='avg_grade',y='avg_power',data=df1[['avg_grade','avg_power']], ax=a[0])
-#ax.set_xticklabels(ax.get_xticklabels(),rotation=90)
-a[0].set_title("Mean expectation", fontsize=10)
-sns.regplot(x='avg_grade',y='avg_power',data=df1[['avg_grade','avg_power']], ax=a[0])
-
-# bars
-a[1].set_title("Fit to Max", fontsize=10)
-ax = a[1].bar(df2['avg_grade'],df2['avg_power'], 0.2, alpha=0.5)
-
-# prepare fitting
 import numpy as np
-import numpy.polynomial.polynomial as poly
-df2_x_np = df2['avg_grade'].to_numpy()
-df2_y_np = df2['avg_power'].to_numpy()
+x_data = np.linspace(min_grade, max_grade, num=100)
 
-# linear fit
-lin_coefs = poly.polyfit(df2_x_np, df2_y_np, 1)
-x = np.arange(df2_x_np.min(), df2_x_np.max(), 0.1)
-df2_f_np = poly.polyval(x, lin_coefs)
-a[1].plot(x, df2_f_np, 'y', label="linear")
+#
+# Distribution analysis (overall)
+#
 
-# logarithmic fit
-x = df2_x_np - df2_x_np.min() + 1
-log_coefs = poly.polyfit(np.log(x), df2_y_np, 1)
-df2_f_np = poly.polyval(np.log(x), log_coefs)
-#y = df2_f_np(np.log(x))
-a[1].plot(df2_x_np, df2_f_np, 'r', label="logarithmic")
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-# gaussian fit
-import numpy.polynomial.polynomial as poly
-gaus_coefs = poly.polyfit(df2_x_np, df2_y_np, 3)
-x = np.arange(df2_x_np.min(), df2_x_np.max(), 0.1)
-df2_f_np = poly.polyval(x, gaus_coefs)
-a[1].plot(x, df2_f_np, 'g', label="gaussian")
-
-# annotate axes
+plt.title("Distribution analysis (overall)")
 plt.xlabel(x_label)
 plt.ylabel(y_label)
+plt.xlim(min_grade, max_grade)
+plt.ylim(min_power, max_power)
+ax = sns.boxplot(x='avg_grade',y='avg_power',data=df.round({'avg_grade': 0}))
+ax.set_xticklabels(ax.get_xticklabels(),rotation=90)
+plt.show()
+
+# split dataset in 2 categories of effort duration
+import datetime
+df_anaerobic = df[(df.duration < datetime.timedelta(minutes=2))]
+df_aerobic = df[(df.duration >= datetime.timedelta(minutes=2))]
+print(df_aerobic.head())
+
+#
+# Distribution analysis (by category)
+#
+
+fig,a = plt.subplots(2)
+fig.suptitle('Distribution analysis (by category)', fontsize=12)
+
+a[0].set_title("Anaerobic efforts", fontsize=10)
+a[0].set_ylim(min_power, max_power)
+ax = sns.boxplot(x='avg_grade', y='avg_power', data=df_anaerobic.round({'avg_grade': 0}), ax=a[0])
+ax.set_xticklabels(ax.get_xticklabels(),rotation=90)
+
+a[1].set_title("Aerobic efforts", fontsize=10)
+a[1].set_ylim(min_power, max_power)
+ax = sns.boxplot(x='avg_grade', y='avg_power', data=df_aerobic.round({'avg_grade': 0}), ax=a[1])
+ax.set_xticklabels(ax.get_xticklabels(),rotation=90)
+
+plt.show()
+
+# keep best perf in case different exist for same seg or avg_grade
+df_anaerobic = df_anaerobic.groupby(['avg_grade'])['avg_power'].agg('max').reset_index()
+df_aerobic = df_aerobic.groupby(['avg_grade'])['avg_power'].agg('max').reset_index()
+
+#
+# Linear fitting
+#
+
+import numpy.polynomial.polynomial as poly
+
+# create figure
+fig,a = plt.subplots(2)
+fig.suptitle('Linear fitting', fontsize=12)
+
+# anaerobic: reference data
+df_x_np = df_anaerobic['avg_grade'].to_numpy()
+df_y_np = df_anaerobic['avg_power'].to_numpy()
+a[0].scatter(df_x_np, df_y_np, color='lightgrey')
+a[0].set_title("Anaerobic efforts", fontsize=10)
+a[0].legend()
+a[0].set_ylabel(y_label)
+a[0].set_xlim(min_grade, max_grade)
+a[0].set_ylim(min_power, max_power)
+
+# anaerobic: plynomial fit
+x = np.arange(df_x_np.min(), df_x_np.max(), 0.1)
+for degree in range(1, 4, 1):
+  coefs = poly.polyfit(df_x_np, df_y_np, degree)
+  df_f_np = poly.polyval(x, coefs)
+  a[0].plot(x, df_f_np, label="degree " + str(degree))
+a[0].legend()
+
+# aerobic: reference data
+df_x_np = df_aerobic['avg_grade'].to_numpy()
+df_y_np = df_aerobic['avg_power'].to_numpy()
+a[1].scatter(df_x_np, df_y_np, color='lightgrey')
+a[1].set_title("Aerobic efforts", fontsize=10)
+a[1].set_xlabel(x_label)
+a[1].set_ylabel(y_label)
+a[1].set_xlim(min_grade, max_grade)
+a[1].set_ylim(min_power, max_power)
+
+# aerobic: polynomial fit
+x = np.arange(df_x_np.min(), df_x_np.max(), 0.1)
+for degree in range(1, 4, 1):
+  coefs = poly.polyfit(df_x_np, df_y_np, degree)
+  df_f_np = poly.polyval(x, coefs)
+  a[1].plot(x, df_f_np, label="degree " + str(degree))
+a[1].legend()
+
+plt.legend()
+plt.show()
+
+#
+# Non-linear fitting
+#
+
+from scipy.optimize import curve_fit
+
+# generic logistic function as per https://stackoverflow.com/questions/60160803/scipy-optimize-curve-fit-for-logistic-function
+def logifunc(x, A, x0, k, off):
+    return A / (1 + np.exp( -k * (x - x0) ) ) + off
+
+# create figure
+fig,a = plt.subplots(2)
+fig.suptitle('Non-linear fitting', fontsize=12)
+
+# anaerobic: reference data
+df_x_np = df_anaerobic['avg_grade'].to_numpy()
+df_y_np = df_anaerobic['avg_power'].to_numpy()
+a[0].scatter(df_x_np, df_y_np, color='lightgrey')
+a[0].set_title("Anaerobic efforts", fontsize=10)
+a[0].set_ylabel(y_label)
+a[0].set_xlim(min_grade, max_grade)
+a[0].set_ylim(min_power, max_power)
+
+# anaerobic: logarithmic fit
+x = df_x_np - df_x_np.min() + 1 
+coefs = poly.polyfit(np.log(x), df_y_np, 1)
+df_f_np = poly.polyval(np.log(x), coefs)
+a[0].plot(df_x_np, df_f_np, 'y', label="logarithmic")
+
+# anaerobic: logistic fit
+popt, pcov = curve_fit(logifunc, df_x_np, df_y_np, p0=[df_y_np.max() - df_y_np.min(), 0, 0.1, df_y_np.min()])
+a[0].plot(x_data, logifunc(x_data, *popt), 'r-', label='logistic')
+a[0].legend()
+
+# aerobic: reference data
+df_x_np = df_aerobic['avg_grade'].to_numpy()
+df_y_np = df_aerobic['avg_power'].to_numpy()
+a[1].scatter(df_x_np, df_y_np, color='lightgrey')
+a[0].set_title("Aerobic efforts", fontsize=10)
+a[1].set_xlabel(x_label)
+a[1].set_ylabel(y_label)
+a[1].set_xlim(min_grade, max_grade)
+a[1].set_ylim(min_power, max_power)
+
+# aerobic: logarithmic fit
+x = df_x_np - df_x_np.min() + 1
+coefs = poly.polyfit(np.log(x), df_y_np, 1)
+df_f_np = poly.polyval(np.log(x), coefs)
+a[1].plot(df_x_np, df_f_np, 'y', label="logarithmic")
+
+# aerobic: logistic fit
+popt, pcov = curve_fit(logifunc, df_x_np, df_y_np, p0=[df_y_np.max() - df_y_np.min(), 0, 0.1, df_y_np.min()])
+a[1].plot(x_data, logifunc(x_data, *popt), 'r-', label='logistic')
+a[1].legend()
+
 plt.legend()
 plt.show()
