@@ -6,5 +6,5 @@ The Python application connects to the Blogger API and retrieves blog post data 
 
 ## Results
 ![Article length](lengthbyid.png)
-![Article frequency](numberperweek.png)
+![Article frequency](numperweek.png)
 ![Wordcloud](wordcloud.png)
