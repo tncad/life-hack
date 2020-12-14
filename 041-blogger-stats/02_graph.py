@@ -1,8 +1,16 @@
 import pandas as pd, numpy as np
 import matplotlib.pyplot as plt
 
+# init parameters inline or from secret.py
+try:
+    #imp.find_module('secret')
+    import secret
+    blogId = secret.BLOG_ID
+except ImportError:
+  blogId = "<Your Blog ID>"
+
 # read and filter previously serialized data
-df = pd.read_pickle("./8549843909067791036.pkl").sort_values(by=['num'], ascending=True)
+df = pd.read_pickle("./" + blogId + ".pkl").sort_values(by=['num'], ascending=True)
 
 # word count by post id
 plt.bar(df['num'],df['wc'], 0.25)
@@ -43,7 +51,7 @@ stopwords.update(ObjRead.read().replace('\n','').split(','))
 ObjRead.close()
 
 # generate word cloud image
-ObjRead = open("8549843909067791036.dat", "r")
+ObjRead = open(blogId + ".dat", "r")
 wordcloud = WordCloud(max_words=50,stopwords=stopwords, background_color="white").generate(ObjRead.read())
 ObjRead.close()
 
