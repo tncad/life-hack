@@ -19,7 +19,8 @@ plt.xticks(
 plt.show()
 
 # post by week
-df['date'] = pd.to_datetime(df['date']) - pd.to_timedelta(7, unit='d')
+df['date'] = pd.to_datetime(df['date'], utc=True)
+df['week'] = df['date'].dt.week
 df = df.groupby([pd.Grouper(key='date', freq='W-MON')]).count().reset_index().sort_values('date')
 ax = plt.bar(df['date'],df['num'], 0.25)
 plt.xlabel('Publish week')
